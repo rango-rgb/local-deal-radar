@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "local-deal-radar"
+version = "0.1.0"
+description = "Local-first resale intelligence CLI for manually entered local marketplace listings."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "typer>=0.12",
+    "rich",
+    "httpx",
+    "pydantic",
+    "python-dotenv",
+]
+
+[project.scripts]
+deal-radar = "local_deal_radar.cli:app"
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-p no:cacheprovider"
+testpaths = ["tests"]

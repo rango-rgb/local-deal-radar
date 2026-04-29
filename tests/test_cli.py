@@ -1,0 +1,89 @@
+from typer.testing import CliRunner
+
+from local_deal_radar.cli import app
+
+runner = CliRunner()
+
+
+def test_cli_help_works() -> None:
+    result = runner.invoke(app, ["--help"])
+
+    assert result.exit_code == 0
+    assert "Local-first resale intelligence CLI" in result.output
+
+
+def test_version_command_works() -> None:
+    result = runner.invoke(app, ["version"])
+
+    assert result.exit_code == 0
+    assert "local-deal-radar 0.1.0" in result.output
+
+
+def test_analyze_help_works() -> None:
+    result = runner.invoke(app, ["analyze", "--help"])
+
+    assert result.exit_code == 0
+    assert "Analyze a manually entered listing." in result.output
+
+
+def test_comps_help_works() -> None:
+    result = runner.invoke(app, ["comps", "--help"])
+
+    assert result.exit_code == 0
+    assert "Fetch comparable sales for a listing." in result.output
+
+
+def test_listings_help_works() -> None:
+    result = runner.invoke(app, ["listings", "--help"])
+
+    assert result.exit_code == 0
+    assert "Manage saved listings." in result.output
+
+
+def test_report_help_works() -> None:
+    result = runner.invoke(app, ["report", "--help"])
+
+    assert result.exit_code == 0
+    assert "Generate a report." in result.output
+
+
+def test_analyze_placeholder_command() -> None:
+    result = runner.invoke(app, ["analyze"])
+
+    assert result.exit_code == 0
+    assert "Analyze command is not implemented yet." in result.output
+
+
+def test_comps_placeholder_command() -> None:
+    result = runner.invoke(app, ["comps"])
+
+    assert result.exit_code == 0
+    assert "Comps command is not implemented yet." in result.output
+
+
+def test_listings_add_placeholder_command() -> None:
+    result = runner.invoke(app, ["listings", "add"])
+
+    assert result.exit_code == 0
+    assert "Saved listings are not implemented yet." in result.output
+
+
+def test_listings_list_placeholder_command() -> None:
+    result = runner.invoke(app, ["listings", "list"])
+
+    assert result.exit_code == 0
+    assert "Saved listings are not implemented yet." in result.output
+
+
+def test_analyze_saved_placeholder_command() -> None:
+    result = runner.invoke(app, ["analyze-saved", "listing-123"])
+
+    assert result.exit_code == 0
+    assert "Saved listings are not implemented yet." in result.output
+
+
+def test_report_placeholder_command() -> None:
+    result = runner.invoke(app, ["report"])
+
+    assert result.exit_code == 0
+    assert "Report command is not implemented yet." in result.output

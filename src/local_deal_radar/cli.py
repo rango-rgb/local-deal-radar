@@ -1,8 +1,17 @@
 """Typer CLI entrypoint for Local Deal Radar."""
 
+import json
+from typing import Annotated
+
 import typer
+from pydantic import ValidationError
+from rich.console import Console
 
 from local_deal_radar import __version__
+from local_deal_radar.ebay import MockEbayClient
+from local_deal_radar.models import LocalListing
+from local_deal_radar.reporting import analysis_to_dict, render_analysis
+from local_deal_radar.scoring import analyze_deal
 
 app = typer.Typer(
     help="Local-first resale intelligence CLI for manually entered listings.",
@@ -18,9 +27,49 @@ def version() -> None:
 
 
 @app.command()
-def analyze() -> None:
+def analyze(
+    title: Annotated[str | None, typer.Option("--title", help="Manual listing title.")] = None,
+    price: Annotated[float | None, typer.Option("--price", min=0, help="Manual listing price.")] = None,
+    category: Annotated[str | None, typer.Option("--category", help="Listing category.")] = None,
+    platform: Annotated[str | None, typer.Option("--platform", help="Source marketplace.")] = None,
+    location: Annotated[str | None, typer.Option("--location", help="Listing location.")] = None,
+    url: Annotated[str | None, typer.Option("--url", help="Listing URL.")] = None,
+    description: Annotated[str | None, typer.Option("--description", help="Listing notes.")] = None,
+    mock: Annotated[bool, typer.Option("--mock", help="Use deterministic offline eBay mock comps.")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Print parseable JSON only.")] = False,
+) -> None:
     """Analyze a manually entered listing."""
-    typer.echo("Analyze command is not implemented yet.")
+    if not mock:
+        typer.echo(
+            "Live eBay analysis is not implemented yet. Use --mock for offline mock analysis. "
+            "Analyze command is not implemented yet."
+        )
+        return
+
+    _require_mock_option(title, "--title")
+    _require_mock_option(price, "--price")
+    _require_mock_option(category, "--category")
+
+    try:
+        listing = LocalListing(
+            title=title,
+            price=price,
+            category=category,
+            platform=platform,
+            location=location,
+            url=url,
+            description=description,
+        )
+    except ValidationError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    comps = MockEbayClient().search_comps(title, category=category)
+    analysis = analyze_deal(listing, comps)
+
+    if json_output:
+        typer.echo(json.dumps(analysis_to_dict(analysis), indent=2))
+        return
+
+    Console().print(render_analysis(analysis))
 
 
 @app.command()
@@ -54,3 +103,11 @@ def report() -> None:
 
 
 app.add_typer(listings_app, name="listings")
+
+
+def _require_mock_option(value: object, option_name: str) -> None:
+    if value is None:
+        raise typer.BadParameter(
+            f"{option_name} is required when using --mock.",
+            param_hint=option_name,
+        )

@@ -19,6 +19,9 @@ from local_deal_radar.reporting import (
     render_comps_table,
     render_listings_table,
     listings_to_dicts,
+    rank_opportunities,
+    render_report,
+    report_to_dict,
 )
 from local_deal_radar.scoring import analyze_deal
 from local_deal_radar.storage import DEFAULT_DB_PATH, DealStore
@@ -213,9 +216,37 @@ def analyze_saved(
 
 
 @app.command()
-def report() -> None:
+def report(
+    limit: Annotated[int, typer.Option("--limit", min=1, help="Maximum opportunities to show.")] = 10,
+    db_path: Annotated[Path, typer.Option("--db-path", help="SQLite database path.")] = DEFAULT_DB_PATH,
+    json_output: Annotated[bool, typer.Option("--json", help="Print parseable JSON only.")] = False,
+    decision: Annotated[str | None, typer.Option("--decision", help="Filter by pursue, maybe, or pass.")] = None,
+    min_profit: Annotated[float | None, typer.Option("--min-profit", help="Minimum expected profit.")] = None,
+) -> None:
     """Generate a report."""
-    typer.echo("Report command is not implemented yet.")
+    if decision is not None and decision not in {"pursue", "maybe", "pass"}:
+        raise typer.BadParameter(
+            "--decision must be one of pursue, maybe, or pass.",
+            param_hint="--decision",
+        )
+
+    analyses = DealStore(db_path).list_analyses(limit=10_000)
+    opportunities = rank_opportunities(
+        analyses,
+        limit=limit,
+        decision=decision,
+        min_profit=min_profit,
+    )
+
+    if json_output:
+        typer.echo(json.dumps(report_to_dict(opportunities), indent=2))
+        return
+
+    if not opportunities:
+        typer.echo("No saved analyses found. Run deal-radar analyze --save first.")
+        return
+
+    Console(width=180).print(render_report(opportunities))
 
 
 app.add_typer(listings_app, name="listings")

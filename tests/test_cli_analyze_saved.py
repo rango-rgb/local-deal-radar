@@ -121,11 +121,11 @@ def test_analyze_saved_without_mock_missing_credentials_exits_cleanly(
     assert "Traceback" not in result.output
 
 
-def test_report_command_still_returns_placeholder() -> None:
-    result = runner.invoke(app, ["report"])
+def test_report_command_returns_empty_message(db_path: Path) -> None:
+    result = runner.invoke(app, ["report", "--db-path", str(db_path)])
 
     assert result.exit_code == 0
-    assert "Report command is not implemented yet." in result.output
+    assert "No saved analyses found" in result.output
 
 
 def test_analyze_saved_json_includes_listing_and_analysis_ids(db_path: Path) -> None:

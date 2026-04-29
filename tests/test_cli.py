@@ -96,8 +96,8 @@ def test_analyze_saved_missing_listing_command_exits_cleanly() -> None:
     assert result.exit_code != 0
 
 
-def test_report_placeholder_command() -> None:
-    result = runner.invoke(app, ["report"])
+def test_report_empty_command_works(db_path: Path) -> None:
+    result = runner.invoke(app, ["report", "--db-path", str(db_path)])
 
     assert result.exit_code == 0
-    assert "Report command is not implemented yet." in result.output
+    assert "No saved analyses found" in result.output

@@ -64,14 +64,3 @@ def test_comps_missing_query_fails_cleanly() -> None:
 
     assert result.exit_code != 0
     assert "--query" in result.output
-
-
-def test_existing_placeholder_commands_still_work() -> None:
-    commands = [
-        ["report"],
-    ]
-
-    for command in commands:
-        result = runner.invoke(app, command)
-        assert result.exit_code == 0
-        assert "not implemented yet" in result.output

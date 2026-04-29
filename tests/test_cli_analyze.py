@@ -82,14 +82,3 @@ def test_analyze_mock_missing_required_fields_fails_cleanly() -> None:
 
     assert result.exit_code != 0
     assert "--price is required" in result.output
-
-
-def test_existing_placeholder_commands_still_work() -> None:
-    commands = [
-        ["report"],
-    ]
-
-    for command in commands:
-        result = runner.invoke(app, command)
-        assert result.exit_code == 0
-        assert "not implemented yet" in result.output

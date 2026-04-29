@@ -1,6 +1,7 @@
 """Typer CLI entrypoint for Local Deal Radar."""
 
 import json
+from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -16,8 +17,11 @@ from local_deal_radar.reporting import (
     comps_to_dicts,
     render_analysis,
     render_comps_table,
+    render_listings_table,
+    listings_to_dicts,
 )
 from local_deal_radar.scoring import analyze_deal
+from local_deal_radar.storage import DEFAULT_DB_PATH, DealStore
 
 app = typer.Typer(
     help="Local-first resale intelligence CLI for manually entered listings.",
@@ -43,6 +47,8 @@ def analyze(
     description: Annotated[str | None, typer.Option("--description", help="Listing notes.")] = None,
     mock: Annotated[bool, typer.Option("--mock", help="Use deterministic offline eBay mock comps.")] = False,
     json_output: Annotated[bool, typer.Option("--json", help="Print parseable JSON only.")] = False,
+    save: Annotated[bool, typer.Option("--save", help="Save listing, analysis, and comps.")] = False,
+    db_path: Annotated[Path, typer.Option("--db-path", help="SQLite database path.")] = DEFAULT_DB_PATH,
 ) -> None:
     """Analyze a manually entered listing."""
     _require_option(title, "--title")
@@ -65,12 +71,36 @@ def analyze(
     client = MockEbayClient() if mock else EbayBrowseClient()
     comps = _search_comps_or_exit(client, title, category=category)
     analysis = analyze_deal(listing, comps)
+    saved_listing_id: int | None = None
+    saved_analysis_id: int | None = None
+
+    if save:
+        store = DealStore(db_path)
+        saved_listing = store.save_listing(listing)
+        analysis = analysis.model_copy(update={"listing": saved_listing})
+        saved_listing_id = saved_listing.id
+        saved_analysis_id = store.save_analysis(analysis)
 
     if json_output:
-        typer.echo(json.dumps(analysis_to_dict(analysis), indent=2))
+        typer.echo(
+            json.dumps(
+                analysis_to_dict(
+                    analysis,
+                    analysis_id=saved_analysis_id,
+                    listing_id=saved_listing_id,
+                ),
+                indent=2,
+            )
+        )
         return
 
-    Console().print(render_analysis(analysis))
+    Console().print(
+        render_analysis(
+            analysis,
+            analysis_id=saved_analysis_id,
+            listing_id=saved_listing_id,
+        )
+    )
 
 
 @app.command()
@@ -93,21 +123,93 @@ def comps(
 
 
 @listings_app.command("add")
-def listings_add() -> None:
+def listings_add(
+    title: Annotated[str, typer.Option("--title", help="Manual listing title.")],
+    price: Annotated[float, typer.Option("--price", min=0, help="Manual listing price.")],
+    category: Annotated[str, typer.Option("--category", help="Listing category.")],
+    platform: Annotated[str | None, typer.Option("--platform", help="Source marketplace.")] = None,
+    location: Annotated[str | None, typer.Option("--location", help="Listing location.")] = None,
+    url: Annotated[str | None, typer.Option("--url", help="Listing URL.")] = None,
+    description: Annotated[str | None, typer.Option("--description", help="Listing notes.")] = None,
+    db_path: Annotated[Path, typer.Option("--db-path", help="SQLite database path.")] = DEFAULT_DB_PATH,
+) -> None:
     """Add a saved listing."""
-    typer.echo("Saved listings are not implemented yet.")
+    try:
+        listing = LocalListing(
+            title=title,
+            price=price,
+            category=category,
+            platform=platform,
+            location=location,
+            url=url,
+            description=description,
+        )
+    except ValidationError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+
+    saved_listing = DealStore(db_path).save_listing(listing)
+    typer.echo(f"Saved listing {saved_listing.id}: {saved_listing.title}")
 
 
 @listings_app.command("list")
-def listings_list() -> None:
+def listings_list(
+    limit: Annotated[int, typer.Option("--limit", min=1, help="Maximum listings to show.")] = 50,
+    db_path: Annotated[Path, typer.Option("--db-path", help="SQLite database path.")] = DEFAULT_DB_PATH,
+    json_output: Annotated[bool, typer.Option("--json", help="Print parseable JSON only.")] = False,
+) -> None:
     """List saved listings."""
-    typer.echo("Saved listings are not implemented yet.")
+    listings = DealStore(db_path).list_listings(limit=limit)
+
+    if json_output:
+        typer.echo(json.dumps(listings_to_dicts(listings), indent=2))
+        return
+
+    if not listings:
+        typer.echo("No saved listings yet.")
+        return
+
+    Console().print(render_listings_table(listings))
 
 
 @app.command()
-def analyze_saved(listing_id: str) -> None:
+def analyze_saved(
+    listing_id: int,
+    mock: Annotated[bool, typer.Option("--mock", help="Use deterministic offline eBay mock comps.")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Print parseable JSON only.")] = False,
+    db_path: Annotated[Path, typer.Option("--db-path", help="SQLite database path.")] = DEFAULT_DB_PATH,
+) -> None:
     """Analyze a saved listing by ID."""
-    typer.echo("Saved listings are not implemented yet.")
+    store = DealStore(db_path)
+    listing = store.get_listing(listing_id)
+    if listing is None:
+        typer.echo(f"Saved listing {listing_id} was not found.")
+        raise typer.Exit(code=1)
+
+    client = MockEbayClient() if mock else EbayBrowseClient()
+    comps = _search_comps_or_exit(client, listing.title, category=listing.category)
+    analysis = analyze_deal(listing, comps)
+    analysis_id = store.save_analysis(analysis)
+
+    if json_output:
+        typer.echo(
+            json.dumps(
+                analysis_to_dict(
+                    analysis,
+                    analysis_id=analysis_id,
+                    listing_id=listing.id,
+                ),
+                indent=2,
+            )
+        )
+        return
+
+    Console().print(
+        render_analysis(
+            analysis,
+            analysis_id=analysis_id,
+            listing_id=listing.id,
+        )
+    )
 
 
 @app.command()

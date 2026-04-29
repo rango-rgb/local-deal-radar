@@ -68,9 +68,6 @@ def test_comps_missing_query_fails_cleanly() -> None:
 
 def test_existing_placeholder_commands_still_work() -> None:
     commands = [
-        ["listings", "add"],
-        ["listings", "list"],
-        ["analyze-saved", "listing-123"],
         ["report"],
     ]
 

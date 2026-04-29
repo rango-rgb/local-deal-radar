@@ -24,6 +24,20 @@ deal-radar analyze --mock --title "Sony a6000 camera body" --price 220 --categor
 deal-radar comps --mock --query "Sony a6000 camera body"
 ```
 
+## Saved Listings
+
+SQLite persistence is local-only and defaults to `data/deals.sqlite3`.
+
+```powershell
+deal-radar listings add --title "Sony a6000 camera body" --price 220 --category cameras --platform facebook --location "Portland, OR"
+deal-radar listings list
+deal-radar analyze --mock --title "Sony a6000 camera body" --price 220 --category cameras --save
+deal-radar analyze-saved 1 --mock
+```
+
+Use `--db-path` on storage commands to point at a different local database.
+Generated database files under `data/` should stay out of git.
+
 ## eBay Credentials
 
 Live valuation uses the official eBay Browse API and requires eBay Developer

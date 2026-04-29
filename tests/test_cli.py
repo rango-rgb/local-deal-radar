@@ -1,8 +1,23 @@
+import shutil
+import uuid
+from pathlib import Path
+
+import pytest
 from typer.testing import CliRunner
 
 from local_deal_radar.cli import app
 
 runner = CliRunner()
+
+
+@pytest.fixture
+def db_path() -> Path:
+    base = Path(".test-data") / f"cli-core-{uuid.uuid4().hex}"
+    try:
+        yield base / "deals.sqlite3"
+    finally:
+        if base.exists():
+            shutil.rmtree(base)
 
 
 def test_cli_help_works() -> None:
@@ -61,25 +76,24 @@ def test_comps_missing_query_fails_cleanly() -> None:
     assert "--query" in result.output
 
 
-def test_listings_add_placeholder_command() -> None:
+def test_listings_add_missing_required_fields_fails_cleanly() -> None:
     result = runner.invoke(app, ["listings", "add"])
 
+    assert result.exit_code != 0
+    assert "--title" in result.output
+
+
+def test_listings_list_empty_command_works(db_path: Path) -> None:
+    result = runner.invoke(app, ["listings", "list", "--db-path", str(db_path)])
+
     assert result.exit_code == 0
-    assert "Saved listings are not implemented yet." in result.output
+    assert "No saved listings yet." in result.output
 
 
-def test_listings_list_placeholder_command() -> None:
-    result = runner.invoke(app, ["listings", "list"])
-
-    assert result.exit_code == 0
-    assert "Saved listings are not implemented yet." in result.output
-
-
-def test_analyze_saved_placeholder_command() -> None:
+def test_analyze_saved_missing_listing_command_exits_cleanly() -> None:
     result = runner.invoke(app, ["analyze-saved", "listing-123"])
 
-    assert result.exit_code == 0
-    assert "Saved listings are not implemented yet." in result.output
+    assert result.exit_code != 0
 
 
 def test_report_placeholder_command() -> None:

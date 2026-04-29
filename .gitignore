@@ -24,6 +24,11 @@ dist/
 data/
 reports/
 runtime/
+data/*.db
+data/*.db-journal
+data/*.sqlite
+data/*.sqlite3
+.test-data/
 *.sqlite
 *.sqlite3
 *.db

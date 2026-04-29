@@ -86,9 +86,6 @@ def test_analyze_mock_missing_required_fields_fails_cleanly() -> None:
 
 def test_existing_placeholder_commands_still_work() -> None:
     commands = [
-        ["listings", "add"],
-        ["listings", "list"],
-        ["analyze-saved", "listing-123"],
         ["report"],
     ]
 

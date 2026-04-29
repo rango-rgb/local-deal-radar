@@ -4,13 +4,22 @@ from rich.console import Group
 from rich.panel import Panel
 from rich.table import Table
 
-from local_deal_radar.models import DealAnalysis, EbayComp
+from local_deal_radar.models import DealAnalysis, EbayComp, LocalListing
 
 
-def analysis_to_dict(analysis: DealAnalysis) -> dict:
+def analysis_to_dict(
+    analysis: DealAnalysis,
+    analysis_id: int | None = None,
+    listing_id: int | None = None,
+) -> dict:
     """Convert an analysis to JSON-serializable built-in types."""
 
-    return analysis.model_dump(mode="json")
+    payload = analysis.model_dump(mode="json")
+    if listing_id is not None:
+        payload["listing_id"] = listing_id
+    if analysis_id is not None:
+        payload["analysis_id"] = analysis_id
+    return payload
 
 
 def comps_to_dicts(comps: list[EbayComp]) -> list[dict]:
@@ -19,7 +28,17 @@ def comps_to_dicts(comps: list[EbayComp]) -> list[dict]:
     return [comp.model_dump(mode="json") for comp in comps]
 
 
-def render_analysis(analysis: DealAnalysis) -> Panel:
+def listings_to_dicts(listings: list[LocalListing]) -> list[dict]:
+    """Convert listings to JSON-serializable built-in types."""
+
+    return [listing.model_dump(mode="json") for listing in listings]
+
+
+def render_analysis(
+    analysis: DealAnalysis,
+    analysis_id: int | None = None,
+    listing_id: int | None = None,
+) -> Panel:
     """Build a Rich renderable for a deal analysis."""
 
     summary = Table.grid(padding=(0, 2))
@@ -31,6 +50,10 @@ def render_analysis(analysis: DealAnalysis) -> Panel:
     summary.add_row("Estimated resale", f"${analysis.estimated_resale_value:.2f}")
     summary.add_row("Confidence", f"{analysis.confidence_score:.2f}")
     summary.add_row("Deal score", f"{analysis.deal_score:.2f}")
+    if listing_id is not None:
+        summary.add_row("Saved listing id", str(listing_id))
+    if analysis_id is not None:
+        summary.add_row("Saved analysis id", str(analysis_id))
 
     comps = render_comps_table(analysis.comps)
     comps.title = "eBay Active Comps"
@@ -67,6 +90,29 @@ def render_comps_table(comps: list[EbayComp]) -> Table:
             f"${comp.shipping:.2f}",
             comp.condition or "",
             comp.source or "",
+        )
+
+    return table
+
+
+def render_listings_table(listings: list[LocalListing]) -> Table:
+    """Build a Rich table for saved listings."""
+
+    table = Table(title="Saved Listings", show_lines=False)
+    table.add_column("ID", justify="right")
+    table.add_column("Title")
+    table.add_column("Price", justify="right")
+    table.add_column("Category")
+    table.add_column("Platform")
+    table.add_column("Location")
+    for listing in listings:
+        table.add_row(
+            str(listing.id or ""),
+            listing.title,
+            f"${listing.price:.2f}",
+            listing.category,
+            listing.platform or "",
+            listing.location or "",
         )
 
     return table

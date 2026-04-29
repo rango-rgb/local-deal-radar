@@ -47,18 +47,18 @@ def test_report_help_works() -> None:
     assert "Generate a report." in result.output
 
 
-def test_analyze_placeholder_command() -> None:
+def test_analyze_missing_required_fields_fails_cleanly() -> None:
     result = runner.invoke(app, ["analyze"])
 
-    assert result.exit_code == 0
-    assert "Analyze command is not implemented yet." in result.output
+    assert result.exit_code != 0
+    assert "--title is required" in result.output
 
 
-def test_comps_placeholder_command() -> None:
+def test_comps_missing_query_fails_cleanly() -> None:
     result = runner.invoke(app, ["comps"])
 
-    assert result.exit_code == 0
-    assert "Comps command is not implemented yet." in result.output
+    assert result.exit_code != 0
+    assert "--query" in result.output
 
 
 def test_listings_add_placeholder_command() -> None:

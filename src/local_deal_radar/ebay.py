@@ -1,10 +1,28 @@
-"""Offline eBay-style comparable listings for local deal analysis."""
+"""eBay comparable listing clients for local deal analysis."""
+
+import base64
+import time
+from typing import Any
+
+import httpx
 
 from local_deal_radar.categories import normalize_category
+from local_deal_radar.config import EbayConfig, MissingEbayCredentialsError, load_ebay_config
 from local_deal_radar.models import EbayComp
 
 
 NO_COMP_TERMS = ("no comps", "unknown item xyz")
+PRODUCTION_API_BASE = "https://api.ebay.com"
+SANDBOX_API_BASE = "https://api.sandbox.ebay.com"
+TOKEN_PATH = "/identity/v1/oauth2/token"
+BROWSE_SEARCH_PATH = "/buy/browse/v1/item_summary/search"
+OAUTH_SCOPE = "https://api.ebay.com/oauth/api_scope"
+MIN_SEARCH_LIMIT = 1
+MAX_SEARCH_LIMIT = 50
+
+
+class EbayApiError(Exception):
+    """Raised for sanitized eBay API failures."""
 
 
 class MockEbayClient:
@@ -28,6 +46,113 @@ class MockEbayClient:
         dataset_key = _dataset_key(normalized_query, category)
         comps = _COMP_DATASETS[dataset_key]
         return [comp.model_copy() for comp in comps[:limit]]
+
+
+class EbayBrowseClient:
+    """Thin eBay Browse API client using application access tokens."""
+
+    def __init__(
+        self,
+        config: EbayConfig | None = None,
+        client: httpx.Client | None = None,
+        transport: httpx.BaseTransport | None = None,
+        timeout: float = 10.0,
+    ) -> None:
+        self._config = config
+        self._client = client or httpx.Client(timeout=timeout, transport=transport)
+        self._access_token: str | None = None
+        self._token_expires_at = 0.0
+
+    @property
+    def config(self) -> EbayConfig:
+        if self._config is None:
+            self._config = load_ebay_config()
+        return self._config
+
+    def get_application_token(self) -> str:
+        """Fetch and cache an eBay application access token."""
+
+        now = time.monotonic()
+        if self._access_token and now < self._token_expires_at:
+            return self._access_token
+
+        config = self.config
+        credentials = f"{config.client_id}:{config.client_secret}".encode("utf-8")
+        basic_token = base64.b64encode(credentials).decode("ascii")
+
+        try:
+            response = self._client.post(
+                f"{_api_base(config.environment)}{TOKEN_PATH}",
+                data={
+                    "grant_type": "client_credentials",
+                    "scope": OAUTH_SCOPE,
+                },
+                headers={
+                    "Authorization": f"Basic {basic_token}",
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+            )
+        except httpx.RequestError as exc:
+            raise EbayApiError("Unable to reach eBay token endpoint.") from exc
+
+        if response.status_code < 200 or response.status_code >= 300:
+            raise EbayApiError(
+                f"eBay token request failed with status {response.status_code}."
+            )
+
+        payload = _json_response(response, "token")
+        access_token = payload.get("access_token")
+        if not isinstance(access_token, str) or not access_token.strip():
+            raise EbayApiError("eBay token response did not include an access token.")
+
+        expires_in = _coerce_float(payload.get("expires_in"), default=7200)
+        self._access_token = access_token
+        self._token_expires_at = now + max(0.0, expires_in - 60)
+        return access_token
+
+    def search_comps(
+        self,
+        query: str,
+        category: str | None = None,
+        limit: int = 10,
+    ) -> list[EbayComp]:
+        """Search active eBay Browse listings and normalize them into comps."""
+
+        del category
+        clamped_limit = _clamp_limit(limit)
+        token = self.get_application_token()
+        config = self.config
+
+        try:
+            response = self._client.get(
+                f"{_api_base(config.environment)}{BROWSE_SEARCH_PATH}",
+                params={"q": query, "limit": clamped_limit},
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "X-EBAY-C-MARKETPLACE-ID": config.marketplace_id,
+                },
+            )
+        except httpx.RequestError as exc:
+            raise EbayApiError("Unable to reach eBay Browse search endpoint.") from exc
+
+        if response.status_code < 200 or response.status_code >= 300:
+            raise EbayApiError(
+                f"eBay Browse search failed with status {response.status_code}."
+            )
+
+        payload = _json_response(response, "Browse search")
+        item_summaries = payload.get("itemSummaries")
+        if not isinstance(item_summaries, list):
+            return []
+
+        comps: list[EbayComp] = []
+        for item in item_summaries:
+            if not isinstance(item, dict):
+                continue
+            comp = _normalize_item_summary(item)
+            if comp is not None:
+                comps.append(comp)
+        return comps
 
 
 def _dataset_key(query: str, category: str | None) -> str:
@@ -62,6 +187,78 @@ def _comp(
         condition=condition,
         source="ebay_mock",
     )
+
+
+def _api_base(environment: str) -> str:
+    if environment == "sandbox":
+        return SANDBOX_API_BASE
+    return PRODUCTION_API_BASE
+
+
+def _clamp_limit(limit: int) -> int:
+    return max(MIN_SEARCH_LIMIT, min(MAX_SEARCH_LIMIT, int(limit)))
+
+
+def _json_response(response: httpx.Response, label: str) -> dict[str, Any]:
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise EbayApiError(f"eBay {label} response was not valid JSON.") from exc
+
+    if not isinstance(payload, dict):
+        raise EbayApiError(f"eBay {label} response was not a JSON object.")
+    return payload
+
+
+def _normalize_item_summary(item: dict[str, Any]) -> EbayComp | None:
+    title = item.get("title")
+    price = _money_value(item.get("price"))
+    if not isinstance(title, str) or not title.strip() or price is None:
+        return None
+
+    try:
+        return EbayComp(
+            title=title,
+            price=price,
+            shipping=_shipping_cost(item),
+            condition=item.get("condition"),
+            url=item.get("itemWebUrl")
+            or item.get("itemAffiliateWebUrl")
+            or item.get("itemHref"),
+            source="ebay",
+            item_id=item.get("itemId"),
+        )
+    except ValueError:
+        return None
+
+
+def _shipping_cost(item: dict[str, Any]) -> float:
+    shipping_options = item.get("shippingOptions")
+    if not isinstance(shipping_options, list) or not shipping_options:
+        return 0.0
+
+    first_option = shipping_options[0]
+    if not isinstance(first_option, dict):
+        return 0.0
+    return _money_value(first_option.get("shippingCost")) or 0.0
+
+
+def _money_value(value: Any) -> float | None:
+    if not isinstance(value, dict):
+        return None
+    return _coerce_float(value.get("value"))
+
+
+def _coerce_float(value: Any, default: float | None = None) -> float | None:
+    if value is None:
+        return default
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    if number < 0:
+        return default
+    return number
 
 
 _COMP_DATASETS: dict[str, list[EbayComp]] = {

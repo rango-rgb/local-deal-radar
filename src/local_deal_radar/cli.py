@@ -8,9 +8,15 @@ from pydantic import ValidationError
 from rich.console import Console
 
 from local_deal_radar import __version__
-from local_deal_radar.ebay import MockEbayClient
-from local_deal_radar.models import LocalListing
-from local_deal_radar.reporting import analysis_to_dict, render_analysis
+from local_deal_radar.config import MissingEbayCredentialsError
+from local_deal_radar.ebay import EbayApiError, EbayBrowseClient, MockEbayClient
+from local_deal_radar.models import EbayComp, LocalListing
+from local_deal_radar.reporting import (
+    analysis_to_dict,
+    comps_to_dicts,
+    render_analysis,
+    render_comps_table,
+)
 from local_deal_radar.scoring import analyze_deal
 
 app = typer.Typer(
@@ -39,16 +45,9 @@ def analyze(
     json_output: Annotated[bool, typer.Option("--json", help="Print parseable JSON only.")] = False,
 ) -> None:
     """Analyze a manually entered listing."""
-    if not mock:
-        typer.echo(
-            "Live eBay analysis is not implemented yet. Use --mock for offline mock analysis. "
-            "Analyze command is not implemented yet."
-        )
-        return
-
-    _require_mock_option(title, "--title")
-    _require_mock_option(price, "--price")
-    _require_mock_option(category, "--category")
+    _require_option(title, "--title")
+    _require_option(price, "--price")
+    _require_option(category, "--category")
 
     try:
         listing = LocalListing(
@@ -62,7 +61,9 @@ def analyze(
         )
     except ValidationError as exc:
         raise typer.BadParameter(str(exc)) from exc
-    comps = MockEbayClient().search_comps(title, category=category)
+
+    client = MockEbayClient() if mock else EbayBrowseClient()
+    comps = _search_comps_or_exit(client, title, category=category)
     analysis = analyze_deal(listing, comps)
 
     if json_output:
@@ -73,9 +74,22 @@ def analyze(
 
 
 @app.command()
-def comps() -> None:
+def comps(
+    query: Annotated[str, typer.Option("--query", help="Search query.")],
+    category: Annotated[str | None, typer.Option("--category", help="Local category.")] = None,
+    limit: Annotated[int, typer.Option("--limit", min=1, help="Maximum comps to return.")] = 10,
+    mock: Annotated[bool, typer.Option("--mock", help="Use deterministic offline eBay mock comps.")] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="Print parseable JSON only.")] = False,
+) -> None:
     """Fetch comparable sales for a listing."""
-    typer.echo("Comps command is not implemented yet.")
+    client = MockEbayClient() if mock else EbayBrowseClient()
+    found_comps = _search_comps_or_exit(client, query, category=category, limit=limit)
+
+    if json_output:
+        typer.echo(json.dumps(comps_to_dicts(found_comps), indent=2))
+        return
+
+    Console().print(render_comps_table(found_comps))
 
 
 @listings_app.command("add")
@@ -105,9 +119,25 @@ def report() -> None:
 app.add_typer(listings_app, name="listings")
 
 
-def _require_mock_option(value: object, option_name: str) -> None:
+def _require_option(value: object, option_name: str) -> None:
     if value is None:
         raise typer.BadParameter(
-            f"{option_name} is required when using --mock.",
+            f"{option_name} is required.",
             param_hint=option_name,
         )
+
+
+def _search_comps_or_exit(
+    client: MockEbayClient | EbayBrowseClient,
+    query: str,
+    category: str | None = None,
+    limit: int = 10,
+) -> list[EbayComp]:
+    try:
+        return client.search_comps(query, category=category, limit=limit)
+    except MissingEbayCredentialsError as exc:
+        typer.echo(str(exc))
+        raise typer.Exit(code=1) from exc
+    except EbayApiError as exc:
+        typer.echo(f"eBay API error: {exc}")
+        raise typer.Exit(code=1) from exc

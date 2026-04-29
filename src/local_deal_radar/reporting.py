@@ -1,16 +1,22 @@
-"""Display helpers for Step 3 deal analysis output."""
+"""Display helpers for deal analysis and comps output."""
 
 from rich.console import Group
 from rich.panel import Panel
 from rich.table import Table
 
-from local_deal_radar.models import DealAnalysis
+from local_deal_radar.models import DealAnalysis, EbayComp
 
 
 def analysis_to_dict(analysis: DealAnalysis) -> dict:
     """Convert an analysis to JSON-serializable built-in types."""
 
     return analysis.model_dump(mode="json")
+
+
+def comps_to_dicts(comps: list[EbayComp]) -> list[dict]:
+    """Convert comps to JSON-serializable built-in types."""
+
+    return [comp.model_dump(mode="json") for comp in comps]
 
 
 def render_analysis(analysis: DealAnalysis) -> Panel:
@@ -26,18 +32,8 @@ def render_analysis(analysis: DealAnalysis) -> Panel:
     summary.add_row("Confidence", f"{analysis.confidence_score:.2f}")
     summary.add_row("Deal score", f"{analysis.deal_score:.2f}")
 
-    comps = Table(title="Mock eBay Comps", show_lines=False)
-    comps.add_column("Title")
-    comps.add_column("Price", justify="right")
-    comps.add_column("Shipping", justify="right")
-    comps.add_column("Source")
-    for comp in analysis.comps:
-        comps.add_row(
-            comp.title,
-            f"${comp.price:.2f}",
-            f"${comp.shipping:.2f}",
-            comp.source or "",
-        )
+    comps = render_comps_table(analysis.comps)
+    comps.title = "eBay Active Comps"
 
     reasons = Table.grid()
     reasons.add_column()
@@ -53,3 +49,24 @@ def render_analysis(analysis: DealAnalysis) -> Panel:
         Group(summary, comps, "Reasons", reasons, "Warnings", warnings),
         title=f"{analysis.listing.title} (${analysis.listing.price:.2f})",
     )
+
+
+def render_comps_table(comps: list[EbayComp]) -> Table:
+    """Build a Rich table for comparable listings."""
+
+    table = Table(title="eBay Active Comps", show_lines=False)
+    table.add_column("Title")
+    table.add_column("Price", justify="right")
+    table.add_column("Shipping", justify="right")
+    table.add_column("Condition")
+    table.add_column("Source")
+    for comp in comps:
+        table.add_row(
+            comp.title,
+            f"${comp.price:.2f}",
+            f"${comp.shipping:.2f}",
+            comp.condition or "",
+            comp.source or "",
+        )
+
+    return table

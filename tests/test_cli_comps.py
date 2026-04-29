@@ -1,3 +1,5 @@
+import json
+
 from typer.testing import CliRunner
 
 from local_deal_radar.cli import app
@@ -6,49 +8,39 @@ from local_deal_radar.config import MissingEbayCredentialsError
 runner = CliRunner()
 
 
-def test_analyze_mock_sony_a6000_exits_successfully() -> None:
+def test_comps_mock_exits_successfully() -> None:
     result = runner.invoke(
         app,
-        [
-            "analyze",
-            "--mock",
-            "--title",
-            "Sony a6000 camera body",
-            "--price",
-            "220",
-            "--category",
-            "cameras",
-            "--platform",
-            "facebook",
-            "--location",
-            "Portland, OR",
-        ],
+        ["comps", "--mock", "--query", "Sony a6000 camera body"],
     )
 
     assert result.exit_code == 0
 
 
-def test_analyze_mock_output_includes_decision_and_expected_profit() -> None:
+def test_comps_mock_output_includes_plausible_comp_info() -> None:
     result = runner.invoke(
         app,
-        [
-            "analyze",
-            "--mock",
-            "--title",
-            "Sony a6000 camera body",
-            "--price",
-            "220",
-            "--category",
-            "cameras",
-        ],
+        ["comps", "--mock", "--query", "Sony a6000 camera body"],
     )
 
     assert result.exit_code == 0
-    assert "Decision" in result.output
-    assert "Expected profit" in result.output
+    assert "Sony" in result.output
+    assert "ebay_mock" in result.output
 
 
-def test_analyze_without_mock_exits_cleanly_with_missing_credentials_message(monkeypatch) -> None:
+def test_comps_mock_json_returns_parseable_json() -> None:
+    result = runner.invoke(
+        app,
+        ["comps", "--mock", "--query", "Sony a6000 camera body", "--json"],
+    )
+
+    payload = json.loads(result.output)
+    assert result.exit_code == 0
+    assert payload
+    assert payload[0]["source"] == "ebay_mock"
+
+
+def test_comps_without_mock_and_without_credentials_exits_cleanly(monkeypatch) -> None:
     class MissingCredentialsClient:
         def search_comps(self, query: str, category: str | None = None, limit: int = 10):
             raise MissingEbayCredentialsError(
@@ -58,30 +50,20 @@ def test_analyze_without_mock_exits_cleanly_with_missing_credentials_message(mon
 
     monkeypatch.setattr("local_deal_radar.cli.EbayBrowseClient", MissingCredentialsClient)
 
-    result = runner.invoke(
-        app,
-        [
-            "analyze",
-            "--title",
-            "Sony a6000 camera body",
-            "--price",
-            "220",
-            "--category",
-            "cameras",
-        ],
-    )
+    result = runner.invoke(app, ["comps", "--query", "Sony a6000 camera body"])
 
     assert result.exit_code == 1
     assert "Missing eBay credentials" in result.output
     assert "EBAY_CLIENT_ID" in result.output
+    assert "EBAY_CLIENT_SECRET" in result.output
     assert "Traceback" not in result.output
 
 
-def test_analyze_mock_missing_required_fields_fails_cleanly() -> None:
-    result = runner.invoke(app, ["analyze", "--mock", "--title", "Sony a6000 camera body"])
+def test_comps_missing_query_fails_cleanly() -> None:
+    result = runner.invoke(app, ["comps", "--mock"])
 
     assert result.exit_code != 0
-    assert "--price is required" in result.output
+    assert "--query" in result.output
 
 
 def test_existing_placeholder_commands_still_work() -> None:
